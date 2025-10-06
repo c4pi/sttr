@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dotenv import load_dotenv
+
 load_dotenv(".env")
 import io
 import logging
@@ -11,8 +12,8 @@ import queue
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Optional
 
 import numpy as np
 import pyperclip
@@ -23,31 +24,31 @@ from pynput import keyboard
 try:  # Windows notification sound
     import winsound
 except ImportError:  # pragma: no cover - non-Windows
-    winsound = None
+    winsound = None  # type: ignore[assignment]
 
 from refinement import active_refinement_model, refine_text
 from text_to_speech import speak_and_play
 
 # Optional import (loaded lazily when Whisper backend is selected)
 try:
-    from faster_whisper import WhisperModel  # type: ignore
+    from faster_whisper import WhisperModel
 except Exception:  # pragma: no cover - only used when backend is whisper
-    WhisperModel = None  # type: ignore
+    WhisperModel = None
 
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE_TARGET = 16_000
 CHUNK_SECONDS = 5
 CHANNELS = 1
+
+
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -84,7 +85,7 @@ def _maybe_refine_text(full_text: str) -> tuple[str, bool]:
     if not USE_REFINEMENT:
         return full_text, False
 
-    refined_text: Optional[str] = None
+    refined_text: str | None = None
     try:
         refined_text = refine_text(full_text)
     except Exception as exc:  # pragma: no cover
@@ -100,7 +101,7 @@ def _maybe_refine_text(full_text: str) -> tuple[str, bool]:
 @dataclass
 class AppState:
     recording: bool = False
-    session_id: Optional[int] = None
+    session_id: int | None = None
     next_session: int = 1
     buffer: list[np.ndarray] = field(default_factory=list)
     transcripts: dict[int, list[str]] = field(default_factory=dict)
@@ -115,7 +116,7 @@ class AppState:
             self.next_session += 1
             return self.session_id
 
-    def stop_session(self) -> Optional[int]:
+    def stop_session(self) -> int | None:
         with self.lock:
             self.recording = False
             return self.session_id
@@ -129,7 +130,7 @@ class AppState:
             if self.recording:
                 self.buffer.append(chunk)
 
-    def pop_buffer(self, samples: Optional[int], samplerate: int) -> np.ndarray:
+    def pop_buffer(self, samples: int | None, samplerate: int) -> np.ndarray:
         with self.lock:
             if not self.buffer:
                 return np.array([], dtype=np.float32)
@@ -150,7 +151,7 @@ class AppState:
 
 
 STATE = AppState()
-AUDIO_QUEUE: "queue.Queue[tuple[np.ndarray, int, int, bool]]" = queue.Queue()
+AUDIO_QUEUE: queue.Queue[tuple[np.ndarray, int, int, bool]] = queue.Queue()
 STOP_EVENT = threading.Event()
 
 
@@ -189,7 +190,8 @@ def _build_transcriber() -> Callable[[np.ndarray, int], str]:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key or api_key == "your_api_key_here":
             raise RuntimeError("Set GEMINI_API_KEY in .env to use the Gemini backend")
-        import google.generativeai as genai  # noqa: E402
+        import google.generativeai as genai
+
         genai.configure(api_key=api_key)
         logger.info("Gemini API configured")
         model = genai.GenerativeModel(GEMINI_STT_MODEL)
@@ -207,11 +209,15 @@ def _build_transcriber() -> Callable[[np.ndarray, int], str]:
                 subtype="PCM_16",
             ) as wav_file:
                 wav_file.write((audio * 32767).astype(np.int16))
-            blob = {"inline_data": {"mime_type": "audio/wav", "data": wav_buffer.getvalue()}}
-            response = model.generate_content([
-                "Please transcribe this audio. Only return the text.",
-                blob,
-            ])
+            blob = {
+                "inline_data": {"mime_type": "audio/wav", "data": wav_buffer.getvalue()}
+            }
+            response = model.generate_content(
+                [
+                    "Please transcribe this audio. Only return the text.",
+                    blob,
+                ]
+            )
             return (response.text or "").strip()
 
         return transcribe
@@ -222,14 +228,16 @@ def _build_transcriber() -> Callable[[np.ndarray, int], str]:
 TRANSCRIBE = _build_transcriber()
 
 
-def audio_callback(indata, frames, time_info, status):  # noqa: D401 - signature fixed by sounddevice
+def audio_callback(
+    indata: np.ndarray, frames: int, time_info: dict, status: sd.CallbackFlags
+) -> None:
     if status:
         logger.warning(f"Audio warning: {status}")
     STATE.add_buffer_chunk(indata.copy())
 
 
 def recording_loop() -> None:
-    stream: Optional[sd.InputStream] = None
+    stream: sd.InputStream | None = None
     samplerate = SAMPLE_RATE_TARGET
     target_samples = int(CHUNK_SECONDS * samplerate)
 
@@ -308,7 +316,7 @@ class HotkeyListener:
         self.ctrl = False
         self.shift = False
 
-    def on_press(self, key):
+    def on_press(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
             self.ctrl = True
         if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
@@ -317,7 +325,7 @@ class HotkeyListener:
             session = STATE.start_session()
             logger.info(f"Session {session} started (hold Ctrl+Shift)")
 
-    def on_release(self, key):
+    def on_release(self, key: keyboard.Key | keyboard.KeyCode) -> bool | None:
         if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
             self.ctrl = False
         if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
@@ -330,6 +338,8 @@ class HotkeyListener:
             self.stop_event.set()
             logger.info("Stopping application")
             return False
+        return None
+
 
 def _pick_input_samplerate() -> int:
     try:
@@ -342,7 +352,7 @@ def _pick_input_samplerate() -> int:
 
 def _print_banner() -> None:
     logger.info("=" * 60)
-    logger.info("Audio Prompter – Real-time Speech Transcription")
+    logger.info("Audio Prompter - Real-time Speech Transcription")
     logger.info("=" * 60)
     logger.info(f"Backend            : {BACKEND.upper()}")
     logger.info(f"Refinement         : {'ON' if USE_REFINEMENT else 'OFF'}")
@@ -390,4 +400,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

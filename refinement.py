@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from litellm import completion
-
 
 SYSTEM_PROMPT = (
     "You will receive a raw audio transcription under <audio_transcript> tag, which may contain incomplete sentences, filler words, or repetition. "
@@ -22,21 +21,21 @@ SYSTEM_PROMPT = (
 )
 
 
-def _env(name: str, default: Optional[str] = None, *, lower: bool = False) -> Optional[str]:
+def _env(name: str, default: str | None = None, *, lower: bool = False) -> str | None:
     value = os.getenv(name)
     if value is None:
         value = default
     if value is None:
         return None
-    if not isinstance(value, str):
-        return value
+    # os.getenv always returns str or None, but keeping this for safety
+    assert isinstance(value, str)
     value = value.strip()
     if not value:
         return default
     return value.lower() if lower else value
 
 
-def _provider_kwargs() -> Dict[str, Any]:
+def _provider_kwargs() -> dict[str, Any]:
     raw_extra = _env("REFINEMENT_OPTIONS")
     if not raw_extra:
         return {}
@@ -49,15 +48,17 @@ def _provider_kwargs() -> Dict[str, Any]:
     return parsed
 
 
-def _resolve_model_and_args() -> Tuple[str, Dict[str, Any]]:
+def _resolve_model_and_args() -> tuple[str, dict[str, Any]]:
     provider = _env("REFINEMENT_PROVIDER", "gemini", lower=True) or "gemini"
-    base_kwargs: Dict[str, Any] = _provider_kwargs()
+    base_kwargs: dict[str, Any] = _provider_kwargs()
 
     if provider == "gemini":
         model = _env("GEMINI_REFINEMENT_MODEL", "gemini/gemini-2.5-flash")
     elif provider == "ollama":
         model = _env("OLLAMA_REFINEMENT_MODEL", "ollama/llama3.1")
-        base_kwargs.setdefault("api_base", _env("OLLAMA_API_BASE", "http://127.0.0.1:11434"))
+        base_kwargs.setdefault(
+            "api_base", _env("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+        )
     else:
         model = _env("REFINEMENT_MODEL")
         if not model:
@@ -81,7 +82,7 @@ def active_refinement_model() -> str:
         return ""
 
 
-def refine_text(transcript: str) -> Optional[str]:
+def refine_text(transcript: str) -> str | None:
     """Send the transcript to the configured refinement backend and return the response text."""
     if not transcript.strip():
         return None
@@ -90,7 +91,10 @@ def refine_text(transcript: str) -> Optional[str]:
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"<audio_transcript>: {transcript} </audio_transcript>"},
+        {
+            "role": "user",
+            "content": f"<audio_transcript>: {transcript} </audio_transcript>",
+        },
     ]
 
     try:
@@ -98,7 +102,7 @@ def refine_text(transcript: str) -> Optional[str]:
     except Exception as exc:  # pragma: no cover - network errors
         raise RuntimeError(f"Refinement service call failed: {exc}") from exc
 
-    content: Optional[str] = None
+    content: str | None = None
     if isinstance(response, dict):
         choices = response.get("choices") or []
         if choices:
@@ -120,4 +124,3 @@ def refine_text(transcript: str) -> Optional[str]:
     cleaned_content = re.sub(r".*?</think>\s*", "", content, flags=re.DOTALL)
     result = cleaned_content.strip()
     return result or None
-

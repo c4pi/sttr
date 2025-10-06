@@ -41,24 +41,6 @@ dependencies = [
     "litellm>=1.42.12",
 ]
 
-[tool.black]
-line-length = 88
-target-version = ['py310']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # directories
-  \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-)/
-'''
-
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
@@ -77,7 +59,7 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = [
     "sounddevice.*",
-    "soundfile.*", 
+    "soundfile.*",
     "pynput.*",
     "faster_whisper.*",
     "whisper.*",
@@ -102,4 +84,69 @@ markers = [
     "integration: marks tests as integration tests",
     "gui: marks tests that require GUI",
     "audio: marks tests that require audio hardware",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv", "__pycache__"]
+skips = ["B101"]  # Skip assert_used test
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.format]
+# Ruff's formatter is Black-compatible by default
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+    "ARG",   # flake8-unused-arguments
+    "SIM",   # flake8-simplify
+    "PTH",   # flake8-use-pathlib
+    "PL",    # pylint
+    "RUF",   # ruff-specific rules
+]
+ignore = [
+    "E501",    # line too long (handled by formatter)
+    "E402",    # module level import not at top of file
+    "B008",    # do not perform function calls in argument defaults
+    "C901",    # too complex
+    "ARG001",  # unused function argument
+    "ARG002",  # unused method argument
+    "PLR0913", # too many arguments
+    "PLR2004", # magic value used in comparison
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sttr"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports
+"sandbox/*" = ["ALL"]  # ignore all rules in sandbox
+
+[tool.pylint.messages_control]
+max-line-length = 88
+disable = [
+    "C0111",  # missing-docstring
+    "R0903",  # too-few-public-methods
+    "C0103",  # invalid-name
+    "R0913",  # too-many-arguments
+]
+
+[tool.pylint.format]
+max-line-length = 88
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
 ]
