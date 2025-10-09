@@ -45,7 +45,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE_TARGET = 16_000
-CHUNK_SECONDS = 5
+CHUNK_SECONDS = 15
 CHANNELS = 1
 
 
@@ -191,10 +191,22 @@ def _build_transcriber() -> Callable[[np.ndarray, int], str]:
         if not api_key or api_key == "your_api_key_here":
             raise RuntimeError("Set GEMINI_API_KEY in .env to use the Gemini backend")
         import google.generativeai as genai
+        from google.api_core import retry as api_retry
 
         genai.configure(api_key=api_key)
         logger.info("Gemini API configured")
-        model = genai.GenerativeModel(GEMINI_STT_MODEL)
+        model = genai.GenerativeModel(
+            GEMINI_STT_MODEL,
+            system_instruction="You are a speech-to-text transcriber. Your only job is to transcribe spoken words from audio. Return ONLY the transcribed text with no explanations, commentary, or additional formatting.",
+        )
+
+        retry_strategy = api_retry.Retry(
+            initial=0.5,
+            multiplier=2,
+            maximum=60,
+            timeout=300,
+            predicate=api_retry.if_exception_type(Exception),
+        )
 
         def transcribe(audio: np.ndarray, samplerate: int) -> str:
             if audio.size == 0:
@@ -214,9 +226,10 @@ def _build_transcriber() -> Callable[[np.ndarray, int], str]:
             }
             response = model.generate_content(
                 [
-                    "Please transcribe this audio. Only return the text.",
+                    "Transcribe the speech in this audio file. Return ONLY the spoken words, nothing else. Do not include explanations, analysis, or any other text.",
                     blob,
-                ]
+                ],
+                request_options={"retry": retry_strategy},
             )
             return (response.text or "").strip()
 

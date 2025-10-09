@@ -9,6 +9,8 @@ from typing import Any
 
 from litellm import completion
 
+MAX_RETRIES = 3
+
 SYSTEM_PROMPT = (
     "You will receive a raw audio transcription under <audio_transcript> tag, which may contain incomplete sentences, filler words, or repetition. "
     "Your task is to transform it into a clear, natural, and well-structured written message. "
@@ -98,7 +100,12 @@ def refine_text(transcript: str) -> str | None:
     ]
 
     try:
-        response = completion(model=model, messages=messages, **extra_args)
+        response = completion(
+            model=model,
+            messages=messages,
+            num_retries=MAX_RETRIES,  # LiteLLM handles exponential backoff automatically
+            **extra_args,
+        )
     except Exception as exc:  # pragma: no cover - network errors
         raise RuntimeError(f"Refinement service call failed: {exc}") from exc
 
